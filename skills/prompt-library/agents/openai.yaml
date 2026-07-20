@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prompt Library"
+  short_description: "Task-phrasing patterns: outcome, self-check, reference, measurable goal."
+  default_prompt: "Use prompt-library to shape the user request: pick the SDLC phase and category, apply the matching prompt pattern from prompts.md."

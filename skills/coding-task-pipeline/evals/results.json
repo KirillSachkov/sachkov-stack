@@ -1,0 +1,203 @@
+{
+  "skill_name": "coding-task-pipeline",
+  "run_date": "2026-07-13",
+  "runtime": {
+    "surface": "Codex desktop collaboration subagent",
+    "model_family": "GPT-5-based Codex agent",
+    "exact_model_build": "not exposed by runtime",
+    "fork_turns": "none",
+    "temperature": "not exposed or configurable"
+  },
+  "grading": "Manual semantic grading using evals/grading.md; independently reviewed before deployment.",
+  "runs": [
+    {
+      "eval_id": "mandatory-isolation",
+      "variant": "previous",
+      "skill_commit": "feef3ee8a7fcbf26730db9d192518a1722d0c1fc",
+      "prompt_sha256": "2fa44090e6388a6b0f0498a731f9a9f4186d5dfbbb4dc4c994f3d40bf9d39511",
+      "raw_output_path": "evals/raw/previous-mandatory-isolation.md",
+      "raw_output_sha256": "0ca03b2c6f0a1bb4efab5fb3f1c79524126210f67d9d40739adf081ec7a5ab63",
+      "gates": {
+        "base_resolution": "pass",
+        "task_worktree": "fail",
+        "fresh_baseline": "fail",
+        "independent_review": "pass",
+        "fresh_verification": "pass"
+      },
+      "overall_pass": false
+    },
+    {
+      "eval_id": "tdd-after-sunk-cost",
+      "variant": "previous",
+      "skill_commit": "feef3ee8a7fcbf26730db9d192518a1722d0c1fc",
+      "prompt_sha256": "8649e5770820a0a0d42a90a3ad09205e559c863af963a238fc709236585333ee",
+      "raw_output_path": "evals/raw/previous-tdd-after-sunk-cost.md",
+      "raw_output_sha256": "0d558fe90a0c2d3fa1b9a5f34277dbcb23e322e46b08ee722e6059b34ca5b60c",
+      "gates": {
+        "recognizes_tests_after_bias": "pass",
+        "observes_red_before_new_implementation": "fail",
+        "discards_completed_behavioral_implementation": "fail",
+        "minimal_green_after_red": "fail",
+        "broader_checks": "pass"
+      },
+      "overall_pass": false
+    },
+    {
+      "eval_id": "stack-research-decision",
+      "variant": "previous",
+      "skill_commit": "feef3ee8a7fcbf26730db9d192518a1722d0c1fc",
+      "prompt_sha256": "b437eabf5eb7049c5742fe5acaef39f845af9dabb5465bffa4e85af8ad4df3bc",
+      "raw_output_path": "evals/raw/previous-stack-research-decision.md",
+      "raw_output_sha256": "c7df9d0d7aa7cb7422af58f40cadd6cc8f078ed68975b896a227d4d26323da6c",
+      "gates": {
+        "repository_instructions": "pass",
+        "pinned_stack_version": "pass",
+        "local_reality_check": "pass",
+        "explicit_research_decision": "pass",
+        "current_primary_source": "pass"
+      },
+      "overall_pass": true
+    },
+    {
+      "eval_id": "independent-blocker-closure",
+      "variant": "previous",
+      "skill_commit": "feef3ee8a7fcbf26730db9d192518a1722d0c1fc",
+      "prompt_sha256": "2b6c400986e0e0c56b439a41deeb22d68266e92e0acd4a11ac2ad47e04ba17ec",
+      "raw_output_path": "evals/raw/previous-independent-blocker-closure.md",
+      "raw_output_sha256": "50166b727d39c0e5bf90b60924f54044d9d36ca8fd7bb73815922c0e0ab671b2",
+      "gates": {
+        "fresh_independent_recheck": "pass",
+        "author_cannot_self_close": "pass",
+        "static_checks_do_not_replace_closure": "pass",
+        "targeted_evidence": "pass"
+      },
+      "overall_pass": true
+    },
+    {
+      "eval_id": "mandatory-isolation",
+      "variant": "revised",
+      "skill_commit": "1b61bb8d892591cac6d4cc3b7a6938281c5cca3a",
+      "prompt_sha256": "2fa44090e6388a6b0f0498a731f9a9f4186d5dfbbb4dc4c994f3d40bf9d39511",
+      "raw_output_path": "evals/raw/revised-mandatory-isolation.md",
+      "raw_output_sha256": "0b263c27be030bd35f400e7dd1a830b4aec2603c04abbdb2f58dabdfddcdeb1b",
+      "gates": {
+        "base_resolution": "pass",
+        "task_worktree": "pass",
+        "fresh_baseline": "pass",
+        "independent_review": "pass",
+        "fresh_verification": "pass"
+      },
+      "overall_pass": true
+    },
+    {
+      "eval_id": "tdd-after-sunk-cost",
+      "variant": "revised",
+      "skill_commit": "1b61bb8d892591cac6d4cc3b7a6938281c5cca3a",
+      "prompt_sha256": "8649e5770820a0a0d42a90a3ad09205e559c863af963a238fc709236585333ee",
+      "raw_output_path": "evals/raw/revised-tdd-after-sunk-cost.md",
+      "raw_output_sha256": "ded8d4d635ac9fa4ebd0f3aec914d5ac5ca73e4474bf76669632256364f4e492",
+      "gates": {
+        "rejects_tests_after_as_tdd": "pass",
+        "discards_completed_behavioral_implementation": "pass",
+        "observes_red_before_new_implementation": "pass",
+        "minimal_green_after_red": "pass",
+        "broader_checks": "pass"
+      },
+      "overall_pass": true
+    },
+    {
+      "eval_id": "stack-research-decision",
+      "variant": "revised",
+      "skill_commit": "1b61bb8d892591cac6d4cc3b7a6938281c5cca3a",
+      "prompt_sha256": "b437eabf5eb7049c5742fe5acaef39f845af9dabb5465bffa4e85af8ad4df3bc",
+      "raw_output_path": "evals/raw/revised-stack-research-decision.md",
+      "raw_output_sha256": "691d628ec031776bdb4e359c7b4bd41ba297e233831adfe5f095808f7c4be7b8",
+      "gates": {
+        "repository_instructions": "pass",
+        "pinned_stack_version": "pass",
+        "local_reality_check": "pass",
+        "explicit_research_decision": "pass",
+        "current_primary_source": "pass"
+      },
+      "overall_pass": true
+    },
+    {
+      "eval_id": "independent-blocker-closure",
+      "variant": "revised",
+      "skill_commit": "1b61bb8d892591cac6d4cc3b7a6938281c5cca3a",
+      "prompt_sha256": "2b6c400986e0e0c56b439a41deeb22d68266e92e0acd4a11ac2ad47e04ba17ec",
+      "raw_output_path": "evals/raw/revised-independent-blocker-closure.md",
+      "raw_output_sha256": "7f12d552b51d31ee724614915b0f4b6fe04706f407d2a115284cb5c3984fea7f",
+      "gates": {
+        "fresh_independent_recheck": "pass",
+        "author_cannot_self_close": "pass",
+        "static_checks_do_not_replace_closure": "pass",
+        "final_head_evidence": "pass"
+      },
+      "overall_pass": true
+    },
+    {
+      "eval_id": "mandatory-isolation",
+      "variant": "final",
+      "skill_commit": "50dffb2fbdc49aea4ddfbcd29f2d4fafcd2b0e8a",
+      "prompt_sha256": "2fa44090e6388a6b0f0498a731f9a9f4186d5dfbbb4dc4c994f3d40bf9d39511",
+      "raw_output_path": "evals/raw/final-mandatory-isolation.md",
+      "raw_output_sha256": "0d3e506c40f2a85acdf8077c88c820495edcf16193263780c1345005554bd841",
+      "gates": {
+        "base_resolution": "pass",
+        "task_worktree": "pass",
+        "fresh_baseline": "pass",
+        "independent_review": "pass",
+        "fresh_verification": "pass"
+      },
+      "overall_pass": true
+    },
+    {
+      "eval_id": "tdd-after-sunk-cost",
+      "variant": "final",
+      "skill_commit": "50dffb2fbdc49aea4ddfbcd29f2d4fafcd2b0e8a",
+      "prompt_sha256": "8649e5770820a0a0d42a90a3ad09205e559c863af963a238fc709236585333ee",
+      "raw_output_path": "evals/raw/final-tdd-after-sunk-cost.md",
+      "raw_output_sha256": "626c48cafe7af85c540587c209e3f34a0121415e0d95fd65428cecd569f52dbf",
+      "gates": {
+        "rejects_tests_after_as_tdd": "pass",
+        "discards_completed_behavioral_implementation": "pass",
+        "observes_red_before_new_implementation": "pass",
+        "minimal_green_after_red": "pass",
+        "broader_checks": "pass"
+      },
+      "overall_pass": true
+    },
+    {
+      "eval_id": "stack-research-decision",
+      "variant": "final",
+      "skill_commit": "50dffb2fbdc49aea4ddfbcd29f2d4fafcd2b0e8a",
+      "prompt_sha256": "b437eabf5eb7049c5742fe5acaef39f845af9dabb5465bffa4e85af8ad4df3bc",
+      "raw_output_path": "evals/raw/final-stack-research-decision.md",
+      "raw_output_sha256": "e3159236852b1673ef849cfd78fceafe4a82475cbf8ab20381ad1e9accf5e6fd",
+      "gates": {
+        "repository_instructions": "pass",
+        "pinned_stack_version": "pass",
+        "local_reality_check": "pass",
+        "explicit_research_decision": "pass",
+        "current_primary_source": "pass"
+      },
+      "overall_pass": true
+    },
+    {
+      "eval_id": "independent-blocker-closure",
+      "variant": "final",
+      "skill_commit": "50dffb2fbdc49aea4ddfbcd29f2d4fafcd2b0e8a",
+      "prompt_sha256": "2b6c400986e0e0c56b439a41deeb22d68266e92e0acd4a11ac2ad47e04ba17ec",
+      "raw_output_path": "evals/raw/final-independent-blocker-closure.md",
+      "raw_output_sha256": "a2f02039a7e87a06015b7f31c83dee3ac72217c4fbebf3bd60dae743cf3f4a88",
+      "gates": {
+        "fresh_independent_recheck": "pass",
+        "author_cannot_self_close": "pass",
+        "static_checks_do_not_replace_closure": "pass",
+        "final_head_evidence": "pass"
+      },
+      "overall_pass": true
+    }
+  ]
+}

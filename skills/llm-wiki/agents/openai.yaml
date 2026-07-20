@@ -1,0 +1,4 @@
+interface:
+  display_name: "LLM Wiki"
+  short_description: "Build and maintain an interlinked markdown knowledge base."
+  default_prompt: "Use llm-wiki rules for this knowledge-base operation: orient via index first, then ingest/answer/lint with cross-references."

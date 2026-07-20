@@ -1,0 +1,4 @@
+interface:
+  display_name: "Brain Task Management"
+  short_description: "Task lifecycle in the brain repo: inbox, active, done, verify, sync."
+  default_prompt: "Manage brain tasks per SKILL.md: resolve real dates with a tool, one outcome per task, route to project trackers when they exist, verify and commit."

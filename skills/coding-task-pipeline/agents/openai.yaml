@@ -1,0 +1,4 @@
+interface:
+  display_name: "Coding Task Pipeline"
+  short_description: "Stack-agnostic end-to-end workflow for coding tasks."
+  default_prompt: "Use coding-task-pipeline for this code change and carry it through research, plan, implementation, review, tests, and verification."
