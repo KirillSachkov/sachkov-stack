@@ -25,7 +25,7 @@
 ## Установка
 
 ```bash
-git clone <URL этого репо> && cd sachkov-stack
+git clone https://github.com/KirillSachkov/sachkov-stack && cd sachkov-stack
 
 ./install.sh all              # все скиллы в Claude Code + Codex
 ./install.sh caveman --claude # один скилл в один рантайм
