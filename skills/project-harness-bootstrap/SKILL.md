@@ -1,86 +1,134 @@
 ---
 name: project-harness-bootstrap
-description: "Use when starting work in a project repository that has no agent harness or an incomplete one (no root AGENTS.md canon, project skills, pipeline adapter, gates, or test scaffold), or when the owner asks to set a project up for agent-driven development. Detect what exists, interview the owner, build the harness, verify it, record it in the brain."
-related_skills: [coding-task-pipeline]
+description: "Use when starting work in a project repository that has no agent harness or an incomplete one (no root AGENTS.md canon, no .harness/ directory, no gates, no harness.lock), when a SessionStart hook reports a missing or outdated harness, or when the owner asks to set a project up for agent-driven development. Detect what exists, interview the owner, deploy the harness from the brain package, verify it, record it."
+related_skills: [coding-task-pipeline, project-task-report]
 ---
 
 # Project Harness Bootstrap
 
-Owner rule (2026-07-19): every project gets a full agent harness of its own on top of the shared
-global harness. When an agent starts work in a repository without one, the harness is built first,
-with the owner's input, and only then does the task go through it. Do not quietly work harness-free.
+Правило владельца (2026-07-19): у каждого проекта свой полноценный харнес поверх общего
+глобального. Агент, начавший работу в репозитории без харнеса, сначала строит харнес вместе с
+владельцем и только потом ведёт задачу через него. Молча работать без харнеса нельзя.
 
-The global contract stays canonical: a project adapter overrides routes (tracker, base branch,
-commands, CI) but never weakens the core gates of `coding-task-pipeline` (isolation, TDD,
-independent review, fresh verification, owner report, owner-commanded merge).
+Харнес больше не копипастится с эталонного проекта. Он **разворачивается из версионируемого
+пакета** `harness/` в мозге, и расхождение проекта с пакетом считается механически. Это и
+есть разница с прошлой версией скилла.
 
-## Step 0. Detect what exists
+Глобальный контракт остаётся каноном: проектный адаптер переопределяет маршруты (трекер,
+базовая ветка, команды, CI), но не ослабляет ядро `coding-task-pipeline` (изоляция, TDD,
+независимое ревью, свежая верификация, отчёт владельцу, мерж по его команде).
 
-Check, do not assume. A complete harness has:
+## Шаг 0. Посмотреть, что уже есть
 
-- root `AGENTS.md` canon (~150-200 lines: project snapshot, exact commands, boundaries, Definition
-  of Done, merge policy, tracker conventions) plus thin runtime bridges (`CLAUDE.md` with
-  `@AGENTS.md`);
-- one real project skills directory (`.claude/skills/`) with a `task-pipeline` adapter over the
-  global `coding-task-pipeline`; other runtimes see it through a symlink
-  (`.agents/skills -> ../.claude/skills`), never a second editable copy;
-- gates as hooks: a stop-gate (dirty-tree incremental check + `.task-contract.json` verify) wired
-  per runtime, `.task-contract.json` in `.gitignore`;
-- a runnable test scaffold and verification commands that actually work;
-- CI quality gates when the project has CI;
-- a declared tracker (project tracker or brain `tasks/`).
+Проверяй, не предполагай. Расположение пакета получай через `harness/bin/brain-root`, не
+хардкодом пути.
 
-All present: proceed with normal work. Partial: name the missing parts and propose completing them
-as a separate small task before or alongside the current one. Never silently rebuild what exists.
+```bash
+BRAIN=$("$HOME/.claude/hooks/harness-detect.sh" >/dev/null 2>&1; \
+        for c in "$AGENT_BRAIN" "$HOME/dev/brain" "$HOME/brain"; do \
+          [ -n "$c" ] && [ -f "$c/AGENTS.md" ] && echo "$c" && break; done)
+python3 "$BRAIN/harness/bin/harness" diff <repo>
+```
 
-## Step 1. Interview the owner
+Три исхода:
 
-Ask once, as one compact list, only what the repository cannot answer. Confirm inferred facts
-instead of asking open questions. Cover:
+- `харнеса нет` — идём дальше по этому скиллу;
+- `дрейф` — харнес есть, но отстал: покажи владельцу вывод `diff` и предложи
+  `harness update`, полный bootstrap не нужен;
+- `совпадает с пакетом` — ничего не строим, идём работать.
 
-- what the project is and its stage (active development, maintenance, experiment);
-- stack and versions (pre-fill from manifests and lock files);
-- exact commands: setup, run, test, lint, build;
-- integration branch and merge policy (default: agent stops at merge-ready, owner commands the merge);
-- tracker: project tracker, brain tasks, or none yet;
-- boundaries: always allowed, ask first, never touch;
-- deploy or release route and production access, if relevant;
-- Definition of Done for a typical task.
+Никогда не пересобирай молча то, что уже стоит.
 
-## Step 2. Build the harness
+## Шаг 1. Интервью с владельцем
 
-Reference implementation: your most recently bootstrapped project. Copy its
-shape, adapt the stack specifics; do not invent a new structure per project.
+Спроси **один раз, одним компактным списком**, и только то, чего нельзя вычитать из
+репозитория. Выведенные факты подтверждай, а не переспрашивай открытым вопросом.
 
-1. `AGENTS.md` canon from the interview + repository facts. Thin `CLAUDE.md` bridge. Raise runtime
-   doc-size limits when the canon is large (Codex `project_doc_max_bytes`).
-2. `.claude/skills/task-pipeline/` adapter: head (project context, tracker, base branch, commands)
-   + tail (Definition of Done, report and merge policy) around the global contract; route by task
-   type (feature, fix, trivial) only when the project needs it.
-3. `.agents/skills` symlink to `.claude/skills`, asserted in CI when CI exists.
-4. Stop-gate hook adapted to the stack: incremental check command for a dirty tree, contract verify
-   on a clean tree. Wire for each runtime (`.claude/settings.json`; `.codex/hooks.json`, timeout in
-   seconds). Add `.task-contract.json` to `.gitignore`.
-5. Test scaffold by stack if missing; wire its run command into the gate and `AGENTS.md`.
-6. CI gates: tests, lint, skills frontmatter validation, symlink assertion.
-7. Per-stack guidance skills when they exist; otherwise record stack rules inside the project, not
-   in the global skills.
+- что за проект и стадия (активная разработка, поддержка, эксперимент);
+- стек и версии (предзаполни из манифестов и лок-файлов);
+- точные команды: setup, run, test, lint, build;
+- базовая ветка и политика мержа (по умолчанию: агент доводит до merge-ready, мерж командует
+  владелец);
+- трекер: свой трекер проекта, задачи мозга, или пока никакого;
+- границы: что можно всегда, что спросить сначала, что не трогать;
+- маршрут деплоя или релиза и доступ к проду, если он есть;
+- Definition of Done для типичной задачи.
 
-## Step 3. Verify before first use
+## Шаг 2. Выбрать стеки
 
-- Run every command written into `AGENTS.md` once; fix or mark the broken ones.
-- Trip the stop-gate deliberately (dirty tree, failing contract command) and watch it block.
-- Run one trivial task end to end through the adapter, including the owner report.
+Первый стек основной: только он даёт `stack.sh` с проверками. Остальные добавляют правила.
 
-## Step 4. Record in the brain
+| Признак в репозитории | Стек |
+|---|---|
+| `*.csproj`, `*.sln` | `dotnet` |
+| `next.config.*` | `next` (плюс `web`) |
+| `package.json` + `tsconfig.json` | `node` (плюс `web`, если есть UI) |
+| `pyproject.toml`, `requirements.txt` | `python` |
+| `go.mod` | `go` |
+| уроки, видео, доски, вики, проза | `content` |
 
-- Add or update the project line in `memory/projects.md` and the `wiki/<project>.md` page with
-  `[[wikilinks]]`; note where the project deviates from the global contract and why.
-- The harness itself lives in the project repository; the brain records that it exists.
+`web` это оверлей поверх основного стека, а не самостоятельный стек: он добавляет правила
+маршрутизации фронтенд-скиллов.
 
-## Runtime adapters
+## Шаг 3. Развернуть
 
-- **Claude Code:** hooks in `.claude/settings.json` (timeout in milliseconds); skills discovered
-  from `.claude/skills/`.
-- **Codex:** reads `AGENTS.md` natively; hooks in `.codex/hooks.json` (timeout in seconds); skills
-  through the `.agents/skills` symlink.
+```bash
+python3 "$BRAIN/harness/bin/harness" init <repo> --stack <основной> [--stack web] \
+        --base-branch <ветка>
+```
+
+Что появится: `.harness/` (гейты, правила, `stack.sh`, `deny-commands.txt`, `harness.lock`),
+`AGENTS.md` и `CLAUDE.md`, обвязка `.claude/settings.json` и `.codex/hooks.json`, симлинки
+`.claude/skills` и `.agents/skills` на канонический `.harness/skills`, запись
+`.task-contract.json` в `.gitignore`.
+
+Дальше **заполни плейсхолдеры `{{...}}` в `AGENTS.md`** по ответам из интервью. Пустой
+плейсхолдер лучше выдуманного факта: если чего-то не знаешь, спроси, а не сочиняй.
+
+Проектную специфику добавляй правильным слоем:
+
+- правило, полезное только этому репозиторию → новый файл в `.harness/rules/` с `paths:`;
+- правило, полезное всем проектам стека → в пакет, `harness/stacks/<стек>/rules/`, с бампом
+  `VERSION`;
+- проектный скилл → `.harness/skills/<имя>/SKILL.md`, строка в `skills/REGISTRY.md` мозга;
+- запрещённая команда → строка в `.harness/deny-commands.txt`.
+
+## Шаг 4. Проверить до первого использования
+
+Не отчитывайся о готовности, пока не увидел это своими глазами:
+
+- прогнать каждую команду, записанную в `AGENTS.md`, по одному разу; сломанные починить или
+  честно пометить;
+- уронить stop-гейт намеренно (сломанный файл в грязном дереве) и убедиться, что он **не
+  даёт** завершить ход;
+- дёрнуть запрещённую команду и убедиться, что `pre-bash-guard` её блокирует;
+- тронуть файл, подпадающий под правило, и убедиться, что `rules-inject` подставил правило;
+- `harness diff <repo>` показывает совпадение с пакетом.
+
+## Шаг 5. Зарегистрировать
+
+```bash
+python3 "$BRAIN/harness/bin/harness" scan --register <repo> --stack <стек> --tracker <трекер>
+```
+
+Плюс запись в мозге: строка проекта в `memory/projects.md` и страница `wiki/<project>.md` с
+`[[wikilinks]]`. Отметь там, где проект осознанно расходится с общим контрактом и почему.
+Сам харнес живёт в репозитории проекта; мозг лишь помнит, что он есть.
+
+По манифесту потом ходит ежедневный проход: `harness diff` по каждому проекту, задача
+в `tasks/inbox` на каждый найденный дрейф.
+
+## Адаптеры рантаймов
+
+Гейты общие и лежат в `.harness/gates/`. Рантайм отвечает только за маршрутизацию событий.
+
+| | Claude Code | Codex |
+|---|---|---|
+| канон | `CLAUDE.md` мостом на `AGENTS.md` | `AGENTS.md` читается нативно |
+| хуки | `.claude/settings.json` | `.codex/hooks.json` |
+| таймаут | **миллисекунды** | **секунды** |
+| скиллы | `.claude/skills` → `.harness/skills` | `.agents/skills` → `.harness/skills` |
+
+Большой канон у Codex упирается в лимит суммарного размера `AGENTS.md`: держи корень в
+150-250 строк, детали уноси в `.harness/rules/` и скиллы, при необходимости подними
+`project_doc_max_bytes`.

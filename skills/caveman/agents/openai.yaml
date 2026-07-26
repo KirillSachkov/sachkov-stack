@@ -1,4 +1,0 @@
-interface:
-  display_name: "Caveman"
-  short_description: "Ultra-compressed chat mode: cut output tokens, keep technical accuracy."
-  default_prompt: "Switch to caveman output mode per SKILL.md: compress style, never accuracy; code and commands stay byte-exact."

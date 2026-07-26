@@ -1,4 +1,0 @@
-interface:
-  display_name: "Brain Capture"
-  short_description: "Capture a task, memory, or note into the brain repo from any directory."
-  default_prompt: "Capture the user input into the brain repository per SKILL.md: resolve brain path, sync, file the capture, commit and push."

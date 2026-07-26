@@ -1,0 +1,56 @@
+{
+  "_comment": "Обвязка Claude Code над общими гейтами .harness/gates/. Таймауты в МИЛЛИСЕКУНДАХ. Зеркало для Codex: .codex/hooks.json (там секунды). Содержательная логика в гейтах, здесь только маршрутизация событий.",
+  "permissions": {
+    "allow": [
+{{PERMISSIONS_ALLOW}}
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/.harness/gates/rules-inject.py\"",
+            "timeout": 10000
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/.harness/gates/pre-bash-guard.sh\"",
+            "timeout": 10000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/.harness/gates/post-edit-lint.sh\"",
+            "timeout": 60000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/.harness/gates/stop-gate.sh\"",
+            "timeout": 900000
+          }
+        ]
+      }
+    ]
+  }
+}

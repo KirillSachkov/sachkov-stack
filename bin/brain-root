@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Печатает путь к мозгу. Единственный разрешённый способ его найти: ни один
+# скрипт харнеса не хардкодит расположение, поэтому переезд каталогов не
+# ломает хуки и гейты.
+#
+# Порядок кандидатов: явная переменная, стандартная раскладка, короткий вариант.
+set -u
+
+for candidate in \
+  "${AGENT_BRAIN:-}" \
+  "$HOME/dev/brain" \
+  "$HOME/brain"
+do
+  [ -n "$candidate" ] || continue
+  # Мозг узнаётся по своим маркерам, а не по имени каталога.
+  if [ -f "$candidate/AGENTS.md" ] && [ -d "$candidate/memory" ] && [ -d "$candidate/skills" ]; then
+    printf '%s\n' "$candidate"
+    exit 0
+  fi
+done
+
+exit 1

@@ -1,0 +1,532 @@
+#!/usr/bin/env python3
+"""Разворачивание и учёт проектного харнеса.
+
+    harness init <repo> --stack <stack> [--stack <stack>] [--base-branch main]
+    harness diff <repo>
+    harness update <repo> [--force]
+    harness scan [--register <repo> --stack <stack>]
+
+Два класса файлов, и разница между ними важна:
+
+  generated  скопированы из пакета один в один (гейты, правила пакета, stack.sh,
+             deny-commands). Учитываются по хешу, обновляются `harness update`.
+             Локальная правка такого файла видна как дрейф и update её не затрёт.
+
+  rendered   собраны из шаблона с плейсхолдерами, которые заполняет агент во время
+             интервью (AGENTS.md, CLAUDE.md, settings.json, hooks.json). Пишутся один
+             раз при init и автоматически не обновляются никогда: там живёт проектная
+             специфика. `diff` лишь сообщает, что шаблон в пакете уехал вперёд.
+
+Зависимостей нет: только стандартная библиотека, чтобы это работало где угодно.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+PKG = Path(__file__).resolve().parent.parent
+BRAIN = PKG.parent
+LOCK_NAME = "harness.lock"
+MANIFEST = PKG / "MANIFEST.json"
+
+GENERATED_SOURCES = [
+    ("harness/gates", ".harness/gates"),
+    ("harness/rules", ".harness/rules"),
+]
+GENERATED_FILES = [
+    ("harness/deny-commands.txt", ".harness/deny-commands.txt"),
+]
+RENDERED = [
+    ("AGENTS.md.tmpl", "AGENTS.md"),
+    ("runtimes/claude/CLAUDE.md.tmpl", "CLAUDE.md"),
+    ("runtimes/claude/settings.json.tmpl", ".claude/settings.json"),
+    ("runtimes/codex/hooks.json.tmpl", ".codex/hooks.json"),
+]
+
+
+# ── утилиты ─────────────────────────────────────────────────────────────────
+def version() -> str:
+    return (PKG / "VERSION").read_text(encoding="utf-8").strip()
+
+
+def sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+def file_sha(path: Path) -> str | None:
+    try:
+        return sha(path.read_bytes())
+    except OSError:
+        return None
+
+
+def die(msg: str) -> None:
+    print(f"harness: {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def load_lock(repo: Path) -> dict:
+    p = repo / ".harness" / LOCK_NAME
+    if not p.is_file():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def stack_dir(name: str) -> Path:
+    d = PKG / "stacks" / name
+    if not d.is_dir():
+        die(f"неизвестный стек '{name}'. Доступны: {', '.join(sorted(p.name for p in (PKG / 'stacks').iterdir() if p.is_dir()))}")
+    return d
+
+
+def parse_semver(v: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(x) for x in v.split("."))
+    except ValueError:
+        return (0,)
+
+
+def lock_entry(recorded) -> tuple[str | None, str | None]:
+    """Разворачивает запись `generated` из lock в пару (pkg, live).
+
+    На каждый generated-файл храним ДВА хеша, и это принципиально:
+      pkg   что дал пакет на момент последнего init/update;
+      live  что лежало на диске на тот же момент.
+    Одного хеша не хватает: после `update`, сохранившего локальную правку, pkg и live
+    расходятся навсегда, и единственная запись начинает врать — файл выглядит то как
+    локально изменённый, то как отставший от пакета.
+
+    Старый формат (одна строка) читаем как pkg == live.
+    """
+    if recorded is None:
+        return None, None
+    if isinstance(recorded, str):
+        return recorded, recorded
+    return recorded.get("pkg"), recorded.get("live")
+
+
+# ── сборка набора generated-файлов ──────────────────────────────────────────
+def collect_generated(stacks: list[str]) -> dict[str, bytes]:
+    """Итоговое содержимое generated-файлов: база пакета, поверх неё оверлеи стеков.
+
+    Первый стек считается основным: только он даёт stack.sh. Остальные добавляют
+    правила. Так `node + web` не превращается в спор двух реализаций проверки.
+    """
+    out: dict[str, bytes] = {}
+
+    for src_rel, dst_rel in GENERATED_SOURCES:
+        src = PKG / "project" / src_rel
+        if not src.is_dir():
+            continue
+        for f in sorted(src.rglob("*")):
+            if f.is_file():
+                out[f"{dst_rel}/{f.relative_to(src)}"] = f.read_bytes()
+
+    for src_rel, dst_rel in GENERATED_FILES:
+        src = PKG / "project" / src_rel
+        if src.is_file():
+            out[dst_rel] = src.read_bytes()
+
+    for i, name in enumerate(stacks):
+        sd = stack_dir(name)
+        rules = sd / "rules"
+        if rules.is_dir():
+            for f in sorted(rules.glob("*.md")):
+                out[f".harness/rules/{f.name}"] = f.read_bytes()
+        if i == 0 and (sd / "stack.sh").is_file():
+            body = (sd / "stack.sh").read_bytes()
+            # next/stack.sh подключает node через относительный путь внутри пакета.
+            # В проекте пакета нет, поэтому подстановку делаем здесь, при сборке.
+            if b'BASH_SOURCE[0]}")/../' in body:
+                base = sd / "stack.sh"
+                text = base.read_text(encoding="utf-8")
+                for line in list(text.splitlines()):
+                    if line.strip().startswith(". ") and "../" in line:
+                        parent = line.split("/../", 1)[1].rstrip('"')
+                        inc = (PKG / "stacks" / parent).resolve()
+                        if inc.is_file():
+                            text = text.replace(line, inc.read_text(encoding="utf-8"))
+                body = text.encode("utf-8")
+            out[".harness/stack.sh"] = body
+
+    return out
+
+
+def render(template: str, values: dict[str, str]) -> str:
+    """Подставляет {{KEY}}. Неизвестные плейсхолдеры остаются как есть: их заполняет
+    агент во время интервью с владельцем, и пустое место лучше выдуманного факта."""
+    for k, v in values.items():
+        template = template.replace("{{" + k + "}}", v)
+    return template
+
+
+# ── init ────────────────────────────────────────────────────────────────────
+def cmd_init(args) -> int:
+    repo = Path(args.repo).resolve()
+    if not (repo / ".git").exists():
+        die(f"{repo} не git-репозиторий")
+    stacks = args.stack or []
+    if not stacks:
+        die("укажи хотя бы один --stack")
+    for s in stacks:
+        stack_dir(s)
+
+    lock = load_lock(repo)
+    if lock and not args.force:
+        die(f"харнес уже развёрнут (версия {lock.get('version')}). Используй `harness update` или --force")
+
+    gen = collect_generated(stacks)
+    written, skipped = [], []
+
+    for rel, data in gen.items():
+        dst = repo / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(data)
+        if rel.endswith((".sh", ".py")):
+            dst.chmod(0o755)
+        written.append(rel)
+
+    values = {
+        "PROJECT_NAME": repo.name,
+        "PROJECT_ID": repo.name,
+        "BASE_BRANCH": args.base_branch,
+        "STACK_SUMMARY": ", ".join(stacks),
+        "PERMISSIONS_ALLOW": '      "Bash(git *)",\n      "Bash(ls *)",\n      "Bash(rg *)"',
+    }
+    for src_rel, dst_rel in RENDERED:
+        src = PKG / "project" / src_rel
+        dst = repo / dst_rel
+        if dst.exists() and not args.force:
+            skipped.append(f"{dst_rel} (уже есть, не трогаю)")
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(render(src.read_text(encoding="utf-8"), values), encoding="utf-8")
+        written.append(dst_rel)
+
+    # Скиллы: один канонический каталог, остальные пути это симлинки на него.
+    (repo / ".harness" / "skills").mkdir(parents=True, exist_ok=True)
+    (repo / ".harness" / "skills" / ".gitkeep").touch()
+    for link_rel, target in ((".claude/skills", "../.harness/skills"),
+                             (".agents/skills", "../.harness/skills")):
+        link = repo / link_rel
+        link.parent.mkdir(parents=True, exist_ok=True)
+        if link.is_symlink() or link.exists():
+            if link.is_symlink() and os.readlink(link) == target:
+                continue
+            if not args.force:
+                skipped.append(f"{link_rel} (уже существует)")
+                continue
+            if link.is_symlink() or link.is_file():
+                link.unlink()
+            else:
+                shutil.rmtree(link)
+        link.symlink_to(target)
+        written.append(f"{link_rel} -> {target}")
+
+    lock = {
+        "version": version(),
+        "stacks": stacks,
+        "base_branch": args.base_branch,
+        "generated": {
+            rel: {"pkg": sha(data), "live": sha(data)} for rel, data in sorted(gen.items())
+        },
+        "rendered": {
+            dst_rel: sha((PKG / "project" / src_rel).read_bytes())
+            for src_rel, dst_rel in RENDERED
+        },
+        "customized": {},
+    }
+    lock_path = repo / ".harness" / LOCK_NAME
+    lock_path.write_text(json.dumps(lock, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    written.append(f".harness/{LOCK_NAME}")
+
+    gi = repo / ".gitignore"
+    marker = ".task-contract.json"
+    existing = gi.read_text(encoding="utf-8") if gi.is_file() else ""
+    if marker not in existing:
+        with gi.open("a", encoding="utf-8") as fh:
+            fh.write(f"\n# контракт текущей задачи, локальный\n{marker}\n")
+        written.append(".gitignore (+ .task-contract.json)")
+
+    print(f"харнес {version()} развёрнут в {repo}")
+    print(f"  стеки: {', '.join(stacks)}, базовая ветка: {args.base_branch}")
+    for w in written:
+        print(f"  + {w}")
+    for s in skipped:
+        print(f"  ~ {s}")
+    print("\nДальше: заполни плейсхолдеры {{...}} в AGENTS.md по интервью с владельцем")
+    print("и прогони каждую записанную туда команду хотя бы раз.")
+    return 0
+
+
+# ── diff ────────────────────────────────────────────────────────────────────
+def diff_repo(repo: Path) -> dict:
+    lock = load_lock(repo)
+    if not lock:
+        return {"repo": str(repo), "state": "no-harness"}
+
+    pkg_v, lock_v = version(), lock.get("version", "0.0.0")
+    stacks = lock.get("stacks", [])
+    try:
+        gen = collect_generated(stacks)
+    except SystemExit:
+        return {"repo": str(repo), "state": "broken", "detail": f"стек из lock не найден: {stacks}"}
+
+    customized = set(lock.get("customized", {}))
+    locally_changed, package_changed, both, missing, diverged = [], [], [], [], []
+
+    for rel, data in gen.items():
+        if rel in customized:
+            continue
+        on_disk = file_sha(repo / rel)
+        pkg_now = sha(data)
+        pkg_then, live_then = lock_entry(lock.get("generated", {}).get(rel))
+        if on_disk is None:
+            missing.append(rel)
+            continue
+        # Содержимое совпадает с пакетом — состояние чистое независимо от истории.
+        # Без этой проверки откат файла к версии пакета выглядел бы как новая правка.
+        if on_disk == pkg_now:
+            continue
+        moved_locally = on_disk != live_then
+        moved_in_pkg = pkg_now != pkg_then
+        if moved_locally and moved_in_pkg:
+            both.append(rel)
+        elif moved_locally:
+            locally_changed.append(rel)
+        elif moved_in_pkg:
+            package_changed.append(rel)
+        else:
+            # Расхождение уже сверено на прошлом update и сознательно сохранено.
+            # Держим его видимым, но новым дрейфом не считаем: иначе ежедневный
+            # регулярный проход заводил бы задачу на одно и то же каждый день.
+            diverged.append(rel)
+
+    tmpl_changed = []
+    for src_rel, dst_rel in RENDERED:
+        want = sha((PKG / "project" / src_rel).read_bytes())
+        if lock.get("rendered", {}).get(dst_rel) not in (None, want):
+            tmpl_changed.append(dst_rel)
+
+    behind = parse_semver(lock_v) < parse_semver(pkg_v)
+    clean = not (behind or locally_changed or package_changed or both or missing or tmpl_changed)
+
+    return {
+        "repo": str(repo),
+        "state": "clean" if clean else "drift",
+        "lock_version": lock_v,
+        "pkg_version": pkg_v,
+        "behind": behind,
+        "stacks": stacks,
+        "package_changed": package_changed,
+        "locally_changed": locally_changed,
+        "conflict": both,
+        "missing": missing,
+        "template_changed": tmpl_changed,
+        "diverged": diverged,
+        "customized": sorted(customized),
+    }
+
+
+def print_diff(d: dict) -> None:
+    repo = d["repo"]
+    if d["state"] == "no-harness":
+        print(f"{repo}: харнеса нет")
+        return
+    if d["state"] == "broken":
+        print(f"{repo}: харнес сломан — {d['detail']}")
+        return
+    if d["state"] == "clean":
+        tail = ""
+        if d.get("diverged"):
+            tail = f", осознанно расходится: {', '.join(d['diverged'])}"
+        print(f"{repo}: харнес {d['lock_version']} совпадает с пакетом{tail}")
+        return
+
+    print(f"{repo}: дрейф (lock {d['lock_version']}, пакет {d['pkg_version']})")
+    if d["behind"]:
+        print("  версия отстала — можно `harness update`")
+    for label, key, hint in (
+        ("пакет ушёл вперёд", "package_changed", "обновится через `harness update`"),
+        ("изменено локально", "locally_changed", "update не тронет; переведи в customized или верни к пакету"),
+        ("конфликт (и там, и там)", "conflict", "требуется ручное слияние"),
+        ("файла нет", "missing", "восстановится через `harness update`"),
+        ("шаблон уехал вперёд", "template_changed", "проектный файл, сливай руками"),
+        ("осознанно расходится", "diverged", "сохранено при прошлом update, новым дрейфом не считается"),
+    ):
+        items = d.get(key) or []
+        if items:
+            print(f"  {label} ({len(items)}): {hint}")
+            for it in items:
+                print(f"    {it}")
+
+
+def cmd_diff(args) -> int:
+    d = diff_repo(Path(args.repo).resolve())
+    if args.json:
+        print(json.dumps(d, ensure_ascii=False, indent=2))
+    else:
+        print_diff(d)
+    return 0 if d["state"] == "clean" else 1
+
+
+# ── update ──────────────────────────────────────────────────────────────────
+def cmd_update(args) -> int:
+    repo = Path(args.repo).resolve()
+    d = diff_repo(repo)
+    if d["state"] == "no-harness":
+        die("харнеса нет, нужен `harness init`")
+    if d["state"] == "broken":
+        die(d["detail"])
+
+    lock = load_lock(repo)
+    gen = collect_generated(lock.get("stacks", []))
+
+    if d["conflict"] and not args.force:
+        print("конфликт: файлы изменены и локально, и в пакете.")
+        for c in d["conflict"]:
+            print(f"  {c}")
+        print("Слей руками, затем повтори, либо запусти с --force чтобы взять версию пакета.")
+        return 1
+
+    updated = []
+    targets = set(d["package_changed"]) | set(d["missing"])
+    if args.force:
+        targets |= set(d["conflict"])
+
+    for rel in sorted(targets):
+        dst = repo / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(gen[rel])
+        if rel.endswith((".sh", ".py")):
+            dst.chmod(0o755)
+        updated.append(rel)
+
+    lock["version"] = version()
+    # pkg берём из пакета всегда, live — с диска: локально изменённые файлы мы не
+    # трогали, и их расхождение с пакетом должно остаться видимым как локальное,
+    # а не превратиться в мнимое «пакет ушёл вперёд» на следующем прогоне.
+    lock["generated"] = {}
+    for rel, data in sorted(gen.items()):
+        on_disk = file_sha(repo / rel) or sha(data)
+        lock["generated"][rel] = {"pkg": sha(data), "live": on_disk}
+    (repo / ".harness" / LOCK_NAME).write_text(
+        json.dumps(lock, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    print(f"{repo}: харнес обновлён до {version()}")
+    for u in updated:
+        print(f"  ~ {u}")
+    if d["locally_changed"]:
+        print("  локальные правки сохранены:")
+        for c in d["locally_changed"]:
+            print(f"    {c}")
+    if d["template_changed"]:
+        print("  шаблоны уехали вперёд, слей руками:")
+        for c in d["template_changed"]:
+            print(f"    {c}")
+    return 0
+
+
+# ── scan ────────────────────────────────────────────────────────────────────
+def load_manifest() -> dict:
+    if not MANIFEST.is_file():
+        return {"projects": []}
+    return json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+
+def cmd_scan(args) -> int:
+    man = load_manifest()
+
+    if args.register:
+        repo = Path(args.register).resolve()
+        remote = ""
+        try:
+            remote = subprocess.run(
+                ["git", "-C", str(repo), "remote", "get-url", "origin"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+        except Exception:
+            pass
+        entry = {
+            "id": repo.name,
+            "path": str(repo),
+            "remote": remote,
+            "stacks": args.stack or [],
+            "tracker": args.tracker or "brain",
+        }
+        man["projects"] = [p for p in man.get("projects", []) if p.get("id") != entry["id"]]
+        man["projects"].append(entry)
+        man["projects"].sort(key=lambda p: p["id"])
+        MANIFEST.write_text(json.dumps(man, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"зарегистрирован: {entry['id']} -> {entry['path']}")
+        return 0
+
+    results = []
+    for p in man.get("projects", []):
+        repo = Path(p["path"])
+        if not repo.is_dir():
+            results.append({"repo": str(repo), "state": "missing-path", "id": p["id"]})
+            continue
+        d = diff_repo(repo)
+        d["id"] = p["id"]
+        results.append(d)
+
+    if args.json:
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+        return 0
+
+    drift = [r for r in results if r["state"] != "clean"]
+    print(f"пакет {version()}, проектов в манифесте: {len(results)}, с дрейфом: {len(drift)}")
+    for r in results:
+        print()
+        print_diff(r)
+    return 1 if drift else 0
+
+
+# ── CLI ─────────────────────────────────────────────────────────────────────
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="harness", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("init", help="развернуть харнес в репозиторий")
+    p.add_argument("repo")
+    p.add_argument("--stack", action="append", help="стек; первый считается основным")
+    p.add_argument("--base-branch", default="main")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_init)
+
+    p = sub.add_parser("diff", help="показать дрейф")
+    p.add_argument("repo")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_diff)
+
+    p = sub.add_parser("update", help="подтянуть новую версию пакета")
+    p.add_argument("repo")
+    p.add_argument("--force", action="store_true", help="взять версию пакета при конфликте")
+    p.set_defaults(fn=cmd_update)
+
+    p = sub.add_parser("scan", help="пройтись по манифесту")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--register", metavar="REPO")
+    p.add_argument("--stack", action="append")
+    p.add_argument("--tracker")
+    p.set_defaults(fn=cmd_scan)
+
+    args = ap.parse_args()
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

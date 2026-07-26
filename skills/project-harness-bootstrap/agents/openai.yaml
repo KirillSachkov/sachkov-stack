@@ -1,4 +1,0 @@
-interface:
-  display_name: "Project Harness Bootstrap"
-  short_description: "Set up an agent harness in a project repo that lacks one."
-  default_prompt: "Bootstrap the agent harness for this repository per SKILL.md: detect what exists, interview the owner, build canon + pipeline adapter + gates, verify."

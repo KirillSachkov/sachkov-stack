@@ -78,6 +78,17 @@ Use one task branch in one isolated worktree for every file-changing task.
 
 A clean shared checkout, tiny diff, deadline, or previous green CI does not waive task isolation or a fresh baseline. If baseline checks fail, capture the exact failure and decide whether attribution is still possible before editing. Do not claim a pre-existing failure was caused or fixed by the task.
 
+### Shared host runtimes
+
+Worktrees isolate files, not Docker, bound ports, named volumes, databases, brokers, emulators, CPU, or memory. Treat heavyweight local runtimes as a separate shared resource.
+
+1. A project that uses a local stack must declare its stack identity, lease lifecycle (acquire, status, handoff, release, and stale-owner recovery), isolation support, and safe commands in `AGENTS.md` or its pipeline adapter. If no lease exists and a stack is already running, treat it as owned by another task until ownership is resolved.
+2. Default to one heavyweight stack per project per host. Before any start, build, restart, stop, recreate, migration, database reset, or state-mutating integration/E2E run, inspect the running services and acquire the documented lease.
+3. Only the lease owner may mutate the shared stack. Never stop, rebuild, run `down`, prune, delete volumes, reset data, or replace a stack owned by another task.
+4. Reuse is valid only after explicit handoff and when commit/configuration provenance and test-state isolation are sufficient for the intended evidence. Unknown provenance or concurrent mutable state forbids reuse.
+5. Do not improvise a second stack with another Compose project name or ports. A parallel stack is allowed only when the project explicitly documents complete isolation and a safe resource budget. Otherwise continue lightweight checks, then wait or hand off the heavyweight verification.
+6. After the heavyweight check, release the lease or explicitly hand it to the next task. Recover a stale lease only through the documented project rule; age alone does not prove that the owner is gone.
+
 ## 5. Verifiable Plan
 
 - For each step, state the expected artifact and the command or action that proves it works.
@@ -172,6 +183,8 @@ After all review fixes:
 
 If a required check cannot run, state the exact attempt, reason, and residual risk. A user may accept the delivery with that gap, but the report must mark it incomplete and not pipeline-compliant.
 
+An active shared-runtime lease is not a reason to skip required integration or E2E evidence. Record the exact deferred command, target snapshot, and blocking owner or lease; mark the task `verification pending`; and run the check after handoff. Do not claim pipeline-compliant completion until the check passes fresh. The user may explicitly accept delivery with the gap, but it remains incomplete and not pipeline-compliant.
+
 ## 10. Commits, Integration, Cleanup, and Report
 
 - Create coherent commits that describe completed intent. Use one commit for a small task or one per independently verified vertical slice. Do not use noisy WIP commits in the final history.
@@ -181,42 +194,20 @@ If a required check cannot run, state the exact attempt, reason, and residual ri
 - Update durable docs, tracker state, or wiki only when behavior or reusable process changed.
 - Remove only the task's temporary files and processes. Keep the task branch, worktree, and PR or MR intact while the merge decision is pending; remove them after integration or an explicit handoff. Preserve blocked or unmerged work.
 
-### Owner report
+### Task-local owner report
 
-After every task, publish a plain-language report where the owner will read it: the PR or MR description for a tracker-routed project, otherwise the final message plus the task artifact. State:
+Invoke `project-task-report` whenever project-scoped work reaches a completed usable result. This
+includes a completed audit, diagnosis, investigation, or decision even when no files changed.
 
-- what was done;
-- which parts of the application were touched, in words, not only paths;
-- whether business logic changed, and if yes, which behavior is different now;
-- what automated tests cover, what was checked manually, and what was not verified, with the reason;
-- risks and what to look at before commanding the merge.
+Publish one complete `project-task-report:v1` block in the canonical PR/MR, tracker item, or
+tracker-free brain task. Use the shared seven-section schema, name the delivery revision, and
+record validator or provider-gate evidence. A later material revision invalidates the report until
+it is updated and validated again. Do not create a report catalogue, a sidecar report file, or a
+duplicate full copy in the final chat response.
 
-Write it for a human deciding a merge, not as a command log. The technical final report below complements it and does not replace it.
-
-Use this final report shape:
-
-```markdown
-## Outcome
-<what is now true>
-
-## Requirements and implementation
-<acceptance criteria and important files or decisions>
-
-## Verification
-<fresh commands, counts, UI or API evidence, and CI>
-
-## Independent review
-<findings, fixes, and blocker-closure result>
-
-## Git and integration
-<commits, branch, worktree, issue, PR or MR, merge state>
-
-## Deviations and residual risks
-<skipped checks, blockers, or none>
-
-## Process analysis
-<friction found and the reusable rule, test, validator, or documentation improvement>
-```
+The final chat handoff stays short: state the outcome in one or two sentences, link the canonical
+report, and name the integration state or next owner action. Add unique blocking information only
+when it is not already visible in the canonical report.
 
 ## Red Flags
 
@@ -231,6 +222,8 @@ Use this final report shape:
 | "Best practices require a broad web search" | Research only the current facts that affect this task. |
 | "The agent or reviewer reported success" | Verify the diff, findings, and commands independently. |
 | "CI is green and review is closed, so merging is safe" | Stop at merge-ready. Publish the owner report and wait for the owner's merge command. |
+| "A separate worktree means I can start another Docker stack" | Worktrees do not isolate host runtimes. Use the project lease and one-stack default. |
+| "I will change the Compose project name and ports" | Use a parallel stack only when the project declares full isolation and a safe resource budget. |
 
 ## Definition of Done
 
@@ -244,4 +237,5 @@ The task is done only when all applicable statements are true:
 - Commits and integration follow project rules without unrelated user changes.
 - A PR- or MR-routed change is merge-ready with the owner report published, and any merge happened only on an explicit owner command.
 - Durable state and cleanup are complete.
-- The final report includes verification, review, Git state, deviations, residual risk, and process analysis.
+- The final chat response links and briefly summarizes the canonical task-local report instead of
+  repeating its sections.

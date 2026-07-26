@@ -1,4 +1,0 @@
-interface:
-  display_name: "Karpathy Guidelines"
-  short_description: "Behavioral coding rules: think, simplicity, surgical changes, goal-driven."
-  default_prompt: "Apply karpathy-guidelines to this coding task: surface assumptions, keep the change minimal and surgical, define a verifiable success criterion."
